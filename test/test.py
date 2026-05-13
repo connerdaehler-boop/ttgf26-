@@ -1,40 +1,125 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
-# SPDX-License-Identifier: Apache-2.0
-
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles
+import numpy as np
+from PIL import Image
 
+WIDTH = 256
+HEIGHT = 256
+
+
+# ============================================================
+# LOAD INPUT IMAGE (REAL PHOTO → 256x256 grayscale)
+# ============================================================
+
+def load_input_image(path="input.png"):
+    img = Image.open(path).convert("L")  # grayscale
+    img = img.resize((WIDTH, HEIGHT), Image.BILINEAR)
+    return np.array(img, dtype=np.uint8)
+
+
+# ============================================================
+# OPTIONAL FALLBACK IMAGE (so test never breaks)
+# ============================================================
+
+def ensure_input_image():
+    try:
+        Image.open("input.png")
+    except:
+        print("input.png not found — generating fallback image")
+        fallback = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
+
+        for y in range(HEIGHT):
+            for x in range(WIDTH):
+                fallback[y, x] = (x + y) % 256
+
+        Image.fromarray(fallback).save("input.png")
+
+
+# ============================================================
+# SAFE READ
+# ============================================================
+
+def safe(val):
+    try:
+        return int(val)
+    except:
+        return 0
+
+
+# ============================================================
+# SAVE IMAGE
+# ============================================================
+
+def save(img, name):
+    Image.fromarray(img.astype(np.uint8), mode="L").save(name)
+
+
+# ============================================================
+# RUN FRAME THROUGH DUT
+# ============================================================
+
+async def run_frame(dut, mode, img):
+
+    frame = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
+
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+
+            dut.ui_in.value = mode
+            dut.uio_in.value = int(img[y, x])
+
+            await ClockCycles(dut.clk, 1)
+
+            frame[y, x] = safe(dut.uo_out.value)
+
+    return frame
+
+
+# ============================================================
+# TEST
+# ============================================================
 
 @cocotb.test()
-async def test_project(dut):
-    dut._log.info("Start")
+async def test_pipeline(dut):
 
-    # Set the clock period to 10 us (100 KHz)
+    # --------------------------------------------------------
+    # Clock
+    # --------------------------------------------------------
     clock = Clock(dut.clk, 10, unit="us")
     cocotb.start_soon(clock.start())
 
+    # --------------------------------------------------------
     # Reset
-    dut._log.info("Reset")
-    dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
+    # --------------------------------------------------------
     dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
+    dut.ena.value = 1
+
+    await ClockCycles(dut.clk, 5)
+
     dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
 
-    dut._log.info("Test project behavior")
+    # --------------------------------------------------------
+    # Load real image input
+    # --------------------------------------------------------
+    ensure_input_image()
+    img = load_input_image("input.png")
 
-    # Set the input values you want to test
-    dut.ui_in.value = 20
-    dut.uio_in.value = 30
+    # Save normalized input (debug reference)
+    save(img, "input_normalized.png")
 
-    # Wait for one clock cycle to see the output values
-    await ClockCycles(dut.clk, 1)
+    # --------------------------------------------------------
+    # Run DUT in all modes
+    # --------------------------------------------------------
+    frame0 = await run_frame(dut, 0b00, img)
+    save(frame0, "mode0.png")
 
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
+    frame1 = await run_frame(dut, 0b01, img)
+    save(frame1, "mode1.png")
 
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
+    frame2 = await run_frame(dut, 0b10, img)
+    save(frame2, "mode2.png")
+
+    frame3 = await run_frame(dut, 0b11, img)
+    save(frame3, "mode3.png")
