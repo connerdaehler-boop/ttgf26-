@@ -23,6 +23,10 @@ COMPILE_ARGS    += -DFUNCTIONAL
 COMPILE_ARGS    += -DUSE_POWER_PINS
 COMPILE_ARGS    += -DSIM
 COMPILE_ARGS    += -DUNIT_DELAY=\#1
+
+PDK ?= gf180mcuD
+STD_CELL_LIB ?= gf180mcu_fd_sc_mcu7t5v0
+
 VERILOG_SOURCES += $(PDK_ROOT)/$(PDK)/libs.ref/$(STD_CELL_LIB)/verilog/primitives.v
 VERILOG_SOURCES += $(PDK_ROOT)/$(PDK)/libs.ref/$(STD_CELL_LIB)/verilog/$(STD_CELL_LIB).v
 
